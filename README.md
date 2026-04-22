@@ -86,8 +86,3 @@ npm run dev
 
 ---
 
-## 🎯 Notes
-
-* Transactions used for consistency
-* Marks handled in normalized structure
-* Clean UI with Bootstrap
