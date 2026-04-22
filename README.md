@@ -77,12 +77,3 @@ npm run dev
 
 ---
 
-## 📦 Deliverables
-
-* Backend code
-* Frontend code
-* SQL schema file
-* Postman collection
-
----
-
