@@ -2,11 +2,17 @@ const db = require('../config/db')
 
 exports.createStudent = async (req, res) => {
       const client = await db.connect()
+
       try {
             const { name, email, age, marks } = req.body
 
+            if (!name || !email) {
+                  return res.status(400).json({ message: 'Name and email are required' })
+            }
+
             await client.query('BEGIN')
 
+            // insert student
             const studentRes = await client.query(
                   'INSERT INTO students(name, email, age) VALUES($1,$2,$3) RETURNING *',
                   [name, email, age]
@@ -14,8 +20,11 @@ exports.createStudent = async (req, res) => {
 
             const studentId = studentRes.rows[0].id
 
+            // insert marks
             if (marks && marks.length > 0) {
                   for (let m of marks) {
+                        if (!m.subject || m.score === undefined) continue
+
                         await client.query(
                               'INSERT INTO marks(student_id, subject, score) VALUES($1,$2,$3)',
                               [studentId, m.subject, m.score]
@@ -25,10 +34,25 @@ exports.createStudent = async (req, res) => {
 
             await client.query('COMMIT')
 
-            res.status(201).json(studentRes.rows[0])
+            res.status(201).json({
+                  message: 'Student created successfully',
+                  data: studentRes.rows[0]
+            })
+
       } catch (err) {
             await client.query('ROLLBACK')
-            res.status(500).json({ error: err.message })
+
+            // handle duplicate email
+            if (err.code === '23505') {
+                  return res.status(400).json({
+                        message: 'Email already exists'
+                  })
+            }
+
+            res.status(500).json({
+                  message: 'Failed to create student',
+                  error: err.message
+            })
       } finally {
             client.release()
       }
@@ -61,50 +85,66 @@ exports.getStudents = async (req, res) => {
       }
 }
 
+
 exports.getStudentById = async (req, res) => {
-      try {
-            const { id } = req.params
+      const { id } = req.params
 
-            const student = await db.query(
-                  'SELECT * FROM students WHERE id=$1',
-                  [id]
-            )
+      const student = await db.query(
+            'SELECT * FROM students WHERE id=$1',
+            [id]
+      )
 
-            if (student.rows.length === 0) {
-                  return res.status(404).json({ message: 'Student not found' })
-            }
+      const marks = await db.query(
+            'SELECT subject, score FROM marks WHERE student_id=$1',
+            [id]
+      )
 
-            const marks = await db.query(
-                  'SELECT subject, score FROM marks WHERE student_id=$1',
-                  [id]
-            )
-
-            res.json({
-                  ...student.rows[0],
-                  marks: marks.rows
-            })
-      } catch (err) {
-            res.status(500).json({ error: err.message })
-      }
+      res.json({
+            ...student.rows[0],
+            marks: marks.rows
+      })
 }
 
 exports.updateStudent = async (req, res) => {
+      const client = await db.connect()
+
       try {
             const { id } = req.params
-            const { name, email, age } = req.body
+            const { name, email, age, marks } = req.body
 
-            const result = await db.query(
+            await client.query('BEGIN')
+
+            const student = await client.query(
                   'UPDATE students SET name=$1, email=$2, age=$3 WHERE id=$4 RETURNING *',
                   [name, email, age, id]
             )
 
-            if (result.rows.length === 0) {
+            if (student.rows.length === 0) {
+                  await client.query('ROLLBACK')
                   return res.status(404).json({ message: 'Student not found' })
             }
 
-            res.json(result.rows[0])
+            // delete old marks
+            await client.query('DELETE FROM marks WHERE student_id=$1', [id])
+
+            // insert new marks
+            if (marks && marks.length) {
+                  for (let m of marks) {
+                        await client.query(
+                              'INSERT INTO marks(student_id, subject, score) VALUES($1,$2,$3)',
+                              [id, m.subject, m.score]
+                        )
+                  }
+            }
+
+            await client.query('COMMIT')
+
+            res.json(student.rows[0])
       } catch (err) {
+            await client.query('ROLLBACK')
             res.status(500).json({ error: err.message })
+      } finally {
+            client.release()
       }
 }
 
